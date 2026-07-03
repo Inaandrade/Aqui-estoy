@@ -1,8 +1,51 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Heart, Settings, Shield, Play, Pause, SkipForward, RotateCcw, X, Plus, Pencil, Trash2, ChevronLeft, Send, Lock, Wind, Flower2, Sparkles, Mic, Square, Volume2 } from "lucide-react";
 
-// Límite aproximado de tamaño por audio grabado (base64), para no exceder el límite de 5MB por clave de storage
-const MAX_AUDIO_BYTES = 1.2 * 1024 * 1024; // ~1.2MB por paso, deja margen para el resto del JSON de la sesión
+// Firebase
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBpVVCueidXAyjH7IPw7SjrnrXUYIfReHQ",
+  authDomain: "aqui-estoy-ve.firebaseapp.com",
+  projectId: "aqui-estoy-ve",
+  storageBucket: "aqui-estoy-ve.firebasestorage.app",
+  messagingSenderId: "235637920552",
+  appId: "1:235637920552:web:99db6400eebfee905a361d"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+
+async function storageGet(key) {
+  try {
+    const ref = doc(db, "appdata", key);
+    const snap = await getDoc(ref);
+    return snap.exists() ? { value: snap.data().value } : null;
+  } catch (e) {
+    console.error("Error leyendo", key, e);
+    return null;
+  }
+}
+
+async function storageSet(key, value) {
+  try {
+    const ref = doc(db, "appdata", key);
+    await setDoc(ref, { value });
+    return true;
+  } catch (e) {
+    console.error("Error guardando", key, e);
+    return false;
+  }
+}
+
+// Checkins privados siguen en localStorage
+function localGet(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function localSet(key, value) {
+  try { localStorage.setItem(key, value); return true; } catch { return false; }
+}
 
 // cámbiala aquí si quieres otra clave
 const INSTRUCTOR_PASSCODE = "namaste2026";
@@ -245,10 +288,10 @@ export default function App() {
     let mounted = true;
     (async () => {
       const [savedSessions, savedNumber, savedCheckins, savedWhatsapp] = await Promise.all([
-        storageGet("sessions", true),
-        storageGet("emergency_number", true),
-        storageGet("checkins", false),
-        storageGet("whatsapp_number", true),
+        storageGet("sessions"),
+        storageGet("emergency_number"),
+        Promise.resolve(localGet("checkins")),
+        storageGet("whatsapp_number"),
       ]);
       if (!mounted) return;
       if (savedSessions) {
@@ -274,20 +317,20 @@ export default function App() {
 
   const persistSessions = useCallback(async (next) => {
     setSessions(next);
-    const ok = await storageSet("sessions", JSON.stringify(next), true);
+    const ok = await storageSet("sessions", JSON.stringify(next));
     if (!ok) setSaveError("No se pudo guardar el cambio. Intenta de nuevo en unos segundos.");
     else setSaveError("");
   }, []);
 
   const persistEmergencyNumber = useCallback(async (num) => {
     setEmergencyNumber(num);
-    const ok = await storageSet("emergency_number", num, true);
+    const ok = await storageSet("emergency_number", num);
     return ok;
   }, []);
 
   const persistWhatsappNumber = useCallback(async (num) => {
     setWhatsappNumber(num);
-    const ok = await storageSet("whatsapp_number", num, true);
+    const ok = await storageSet("whatsapp_number", num);
     return ok;
   }, []);
 
@@ -295,7 +338,7 @@ export default function App() {
     async (entry) => {
       const next = [...checkins, entry];
       setCheckins(next);
-      await storageSet("checkins", JSON.stringify(next), false);
+      localSet("checkins", JSON.stringify(next));
     },
     [checkins]
   );
