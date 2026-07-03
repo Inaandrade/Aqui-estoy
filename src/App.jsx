@@ -94,8 +94,29 @@ function blobToBase64(blob) {
   });
 }
 
+// Cloudinary — subida de audios sin límite de tamaño
+const CLOUDINARY_CLOUD_NAME = "wjoapyux";
+const CLOUDINARY_UPLOAD_PRESET = "aquiestoy_audio"; // unsigned preset (lo creamos abajo)
+
+async function uploadAudioToCloudinary(blob) {
+  const formData = new FormData();
+  formData.append("file", blob, "audio.webm");
+  formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+  formData.append("resource_type", "video"); // Cloudinary usa "video" para audio
+  formData.append("folder", "aquiestoy");
+
+  const res = await fetch(
+    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`,
+    { method: "POST", body: formData }
+  );
+  if (!res.ok) throw new Error("Error subiendo audio");
+  const data = await res.json();
+  return data.secure_url; // URL pública del audio
+}
+
 function useAudioRecorder() {
   const [recording, setRecording] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
@@ -120,24 +141,19 @@ function useAudioRecorder() {
   const stop = useCallback(() => {
     return new Promise((resolve) => {
       const recorder = mediaRecorderRef.current;
-      if (!recorder) {
-        resolve(null);
-        return;
-      }
+      if (!recorder) { resolve(null); return; }
       recorder.onstop = async () => {
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
         recorder.stream.getTracks().forEach((t) => t.stop());
         setRecording(false);
+        setUploading(true);
         try {
-          const base64 = await blobToBase64(blob);
-          if (base64Size(base64) > MAX_AUDIO_BYTES) {
-            setError("La grabación es muy larga para guardarla. Intenta una más corta (máx. ~1 minuto).");
-            resolve(null);
-            return;
-          }
-          resolve(base64);
+          const url = await uploadAudioToCloudinary(blob);
+          setUploading(false);
+          resolve(url);
         } catch (e) {
-          setError("No se pudo procesar la grabación.");
+          setUploading(false);
+          setError("No se pudo subir el audio. Verifica tu conexión e intenta de nuevo.");
           resolve(null);
         }
       };
@@ -145,28 +161,22 @@ function useAudioRecorder() {
     });
   }, []);
 
-  return { recording, error, start, stop, setError };
+  return { recording, uploading, error, start, stop, setError };
 }
 
 function AudioStepRecorder({ audioData, onChange }) {
-  const { recording, error, start, stop } = useAudioRecorder();
-  const [localError, setLocalError] = useState("");
+  const { recording, uploading, error, start, stop } = useAudioRecorder();
 
   const handleToggle = async () => {
     if (recording) {
-      const base64 = await stop();
-      if (base64) {
-        onChange(base64);
-        setLocalError("");
-      }
+      const url = await stop();
+      if (url) onChange(url);
     } else {
       await start();
     }
   };
 
-  const handleRemove = () => {
-    onChange(null);
-  };
+  const handleRemove = () => onChange(null);
 
   return (
     <div style={styles.audioRecorderBox}>
@@ -175,20 +185,24 @@ function AudioStepRecorder({ audioData, onChange }) {
           type="button"
           style={recording ? styles.audioRecordButtonActive : styles.audioRecordButton}
           onClick={handleToggle}
+          disabled={uploading}
         >
           {recording ? <Square size={14} color="#FFFFFF" /> : <Mic size={14} color="#FFFFFF" />}
-          <span>{recording ? "Detener grabación" : audioData ? "Regrabar voz" : "Grabar voz para este paso"}</span>
+          <span>
+            {uploading ? "Subiendo audio..." : recording ? "Detener grabación" : audioData ? "Regrabar voz" : "Grabar voz para este paso"}
+          </span>
         </button>
-        {audioData && !recording && (
+        {audioData && !recording && !uploading && (
           <button type="button" style={styles.iconButtonDanger} onClick={handleRemove} aria-label="Eliminar audio">
             <Trash2 size={14} color="#B3441E" />
           </button>
         )}
       </div>
-      {audioData && !recording && (
+      {audioData && !recording && !uploading && (
         <audio style={styles.audioPlayer} controls src={audioData} />
       )}
-      {(error || localError) && <p style={styles.errorText}>{error || localError}</p>}
+      {uploading && <p style={styles.hintText}>⏳ Subiendo a la nube, espera un momento...</p>}
+      {error && <p style={styles.errorText}>{error}</p>}
     </div>
   );
 }
