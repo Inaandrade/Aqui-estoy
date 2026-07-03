@@ -213,8 +213,8 @@ function uid(prefix = "id") {
 
 async function storageGet(key, shared) {
   try {
-    const res = await window.storage.get(key, shared);
-    return res ? res.value : null;
+    const val = localStorage.getItem(key);
+    return val ? { value: val } : null;
   } catch (e) {
     return null;
   }
@@ -222,8 +222,8 @@ async function storageGet(key, shared) {
 
 async function storageSet(key, value, shared) {
   try {
-    const res = await window.storage.set(key, value, shared);
-    return !!res;
+    localStorage.setItem(key, value);
+    return true;
   } catch (e) {
     console.error("Error guardando", key, e);
     return false;
